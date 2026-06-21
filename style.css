@@ -1,0 +1,393 @@
+/* ===========================================================
+   Gallinero — paleta "cuaderno de campo del Chaco"
+   Paja (fondo) · Tierra (texto) · Yema (acento principal)
+   Algarrobo (acento secundario/positivo) · Quebracho (alerta)
+   =========================================================== */
+:root{
+  --paja: #F2EAD3;       /* fondo cálido, paja/cáscara de huevo */
+  --paja-osc: #E4D7B0;   /* fondo secundario, líneas de cuaderno */
+  --superficie: #FFFBF2; /* tarjetas */
+  --tierra: #382A1E;     /* texto principal, tierra oscura del Chaco */
+  --tierra-suave: #6B5A45;/* texto secundario */
+  --yema: #C8862E;       /* acento principal, yema de huevo */
+  --yema-osc: #A66A1C;
+  --algarrobo: #5B6B3D;  /* acento positivo, verde algarrobo */
+  --algarrobo-osc: #44512D;
+  --quebracho: #963B27;  /* alerta / calor extremo */
+  --linea: #D8C9A0;      /* líneas de "cuaderno" */
+  --sombra: rgba(56,42,30,0.14);
+
+  --fuente-display: "Zilla Slab", Georgia, serif;
+  --fuente-cuerpo: "Work Sans", -apple-system, sans-serif;
+  --fuente-ledger: "IBM Plex Mono", "Courier New", monospace;
+
+  --radio: 10px;
+  --radio-chico: 6px;
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--paja);
+  color:var(--tierra);
+  font-family:var(--fuente-cuerpo);
+  -webkit-font-smoothing:antialiased;
+  min-height:100vh;
+}
+
+#app{
+  max-width:760px;
+  margin:0 auto;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 38px,
+      var(--linea) 39px
+    );
+  background-attachment:local;
+}
+
+/* ---------- Encabezado tipo sello de cuaderno ---------- */
+.ledger-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:18px 20px 14px;
+  background:var(--superficie);
+  border-bottom:2px solid var(--tierra);
+}
+.header-left{display:flex;align-items:center;gap:12px;}
+.stamp{
+  width:46px;height:46px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:24px;
+  background:var(--yema);
+  border-radius:50%;
+  border:2px dashed var(--superficie);
+  box-shadow:0 0 0 2px var(--tierra);
+  flex-shrink:0;
+}
+.header-left h1{
+  font-family:var(--fuente-display);
+  font-size:1.5rem;
+  margin:0;
+  letter-spacing:0.3px;
+}
+.subtitle{
+  margin:0;
+  font-size:0.78rem;
+  color:var(--tierra-suave);
+  font-family:var(--fuente-ledger);
+  text-transform:uppercase;
+  letter-spacing:0.6px;
+}
+.btn-ghost{
+  border:1.5px solid var(--tierra);
+  background:transparent;
+  color:var(--tierra);
+  padding:8px 12px;
+  border-radius:var(--radio-chico);
+  font-family:var(--fuente-cuerpo);
+  font-size:0.8rem;
+  cursor:pointer;
+}
+.btn-ghost:hover{background:var(--paja-osc);}
+
+/* ---------- Navegación tipo pestañas de carpeta ---------- */
+.tabs{
+  display:flex;
+  overflow-x:auto;
+  background:var(--paja-osc);
+  border-bottom:2px solid var(--tierra);
+  scrollbar-width:none;
+}
+.tabs::-webkit-scrollbar{display:none;}
+.tab{
+  flex:0 0 auto;
+  padding:11px 16px;
+  border:none;
+  background:transparent;
+  color:var(--tierra-suave);
+  font-family:var(--fuente-ledger);
+  font-size:0.78rem;
+  text-transform:uppercase;
+  letter-spacing:0.5px;
+  cursor:pointer;
+  border-right:1px solid var(--linea);
+  white-space:nowrap;
+}
+.tab.active{
+  background:var(--superficie);
+  color:var(--tierra);
+  font-weight:600;
+  box-shadow:inset 0 -3px 0 var(--yema);
+}
+
+main#views{flex:1;padding:18px 20px 90px;}
+.view{display:none;animation:fadein .18s ease;}
+.view.active{display:block;}
+@keyframes fadein{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+
+h2.section-title{
+  font-family:var(--fuente-display);
+  font-size:1.15rem;
+  margin:0 0 12px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+h2.section-title .n{
+  font-family:var(--fuente-ledger);
+  font-size:0.7rem;
+  background:var(--tierra);
+  color:var(--paja);
+  padding:2px 6px;
+  border-radius:4px;
+}
+
+/* ---------- Tarjetas ---------- */
+.card{
+  background:var(--superficie);
+  border:1.5px solid var(--tierra);
+  border-radius:var(--radio);
+  padding:16px;
+  margin-bottom:14px;
+  box-shadow:2px 3px 0 var(--sombra);
+}
+.card-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+@media (max-width:480px){.grid-2{grid-template-columns:1fr;}}
+
+/* ---------- Bloque "hoy" / contador de huevos ---------- */
+.today-block{text-align:center;}
+.today-date{
+  font-family:var(--fuente-ledger);
+  text-transform:uppercase;
+  font-size:0.75rem;
+  color:var(--tierra-suave);
+  letter-spacing:0.6px;
+  margin-bottom:6px;
+}
+.counter-row{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:18px;
+  margin:10px 0 6px;
+}
+.counter-btn{
+  width:46px;height:46px;
+  border-radius:50%;
+  border:2px solid var(--tierra);
+  background:var(--paja);
+  font-size:1.4rem;
+  font-family:var(--fuente-ledger);
+  cursor:pointer;
+  color:var(--tierra);
+  line-height:1;
+}
+.counter-btn:active{transform:scale(0.94);}
+.counter-btn.plus{background:var(--algarrobo);color:var(--superficie);border-color:var(--algarrobo-osc);}
+.counter-num{
+  font-family:var(--fuente-display);
+  font-size:2.6rem;
+  min-width:70px;
+}
+.counter-label{font-size:0.8rem;color:var(--tierra-suave);}
+
+/* ---------- Estadísticas ---------- */
+.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center;}
+.stat{
+  background:var(--paja);
+  border:1px dashed var(--tierra-suave);
+  border-radius:var(--radio-chico);
+  padding:10px 6px;
+}
+.stat .v{font-family:var(--fuente-ledger);font-size:1.25rem;font-weight:600;}
+.stat .l{font-size:0.68rem;color:var(--tierra-suave);text-transform:uppercase;letter-spacing:0.4px;}
+
+/* ---------- Ahorro ---------- */
+.savings-amount{
+  font-family:var(--fuente-display);
+  font-size:2rem;
+  color:var(--algarrobo-osc);
+}
+.savings-amount.negativo{color:var(--quebracho);}
+.savings-breakdown{
+  font-family:var(--fuente-ledger);
+  font-size:0.82rem;
+  color:var(--tierra-suave);
+  line-height:1.6;
+}
+
+/* ---------- Clima ---------- */
+.weather-now{display:flex;align-items:center;gap:14px;}
+.weather-temp{font-family:var(--fuente-display);font-size:2.4rem;}
+.weather-icon{font-size:2.4rem;}
+.tip{
+  display:flex;
+  gap:10px;
+  padding:10px 0;
+  border-top:1px dashed var(--linea);
+  font-size:0.88rem;
+}
+.tip:first-child{border-top:none;}
+.tip .ico{font-size:1.1rem;flex-shrink:0;}
+.tip.alerta{color:var(--quebracho);font-weight:600;}
+.forecast-strip{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;}
+.fday{
+  flex:0 0 auto;
+  text-align:center;
+  background:var(--paja);
+  border:1px solid var(--linea);
+  border-radius:var(--radio-chico);
+  padding:8px 10px;
+  min-width:64px;
+}
+.fday .d{font-family:var(--fuente-ledger);font-size:0.68rem;text-transform:uppercase;}
+.fday .i{font-size:1.3rem;margin:2px 0;}
+.fday .t{font-size:0.78rem;font-weight:600;}
+
+/* ---------- Listas (huevos, compras) ---------- */
+.list-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:9px 0;
+  border-bottom:1px dashed var(--linea);
+  font-size:0.88rem;
+}
+.list-row:last-child{border-bottom:none;}
+.list-row .meta{color:var(--tierra-suave);font-size:0.76rem;}
+.list-row .right{text-align:right;font-family:var(--fuente-ledger);}
+.del-btn{
+  background:none;border:none;color:var(--quebracho);
+  font-size:0.95rem;cursor:pointer;padding:2px 6px;
+}
+
+/* ---------- Barras simples (sin librería) ---------- */
+.bars{display:flex;align-items:flex-end;gap:6px;height:110px;margin:10px 0;}
+.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;}
+.bar{
+  width:100%;
+  max-width:26px;
+  background:var(--yema);
+  border-radius:3px 3px 0 0;
+  min-height:2px;
+}
+.bar-label{font-size:0.62rem;color:var(--tierra-suave);margin-top:4px;font-family:var(--fuente-ledger);}
+
+/* ---------- Formularios ---------- */
+label{
+  display:block;
+  font-size:0.76rem;
+  text-transform:uppercase;
+  letter-spacing:0.4px;
+  color:var(--tierra-suave);
+  margin:10px 0 4px;
+}
+input,select,textarea{
+  width:100%;
+  padding:9px 10px;
+  border:1.5px solid var(--tierra);
+  border-radius:var(--radio-chico);
+  background:var(--superficie);
+  font-family:var(--fuente-cuerpo);
+  font-size:0.92rem;
+  color:var(--tierra);
+}
+input:focus,select:focus,textarea:focus{
+  outline:3px solid var(--yema);
+  outline-offset:1px;
+}
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  padding:10px 16px;
+  border-radius:var(--radio-chico);
+  border:1.5px solid var(--tierra);
+  background:var(--yema);
+  color:var(--tierra);
+  font-family:var(--fuente-cuerpo);
+  font-weight:600;
+  font-size:0.88rem;
+  cursor:pointer;
+  width:100%;
+  margin-top:12px;
+}
+.btn:active{transform:translateY(1px);}
+.btn.secundario{background:var(--superficie);}
+.btn.peligro{background:var(--quebracho);color:var(--superficie);border-color:var(--tierra);}
+.btn-row{display:flex;gap:10px;}
+.btn-row .btn{margin-top:12px;}
+
+.empty{
+  text-align:center;
+  padding:30px 10px;
+  color:var(--tierra-suave);
+  font-size:0.9rem;
+}
+
+/* ---------- Gallinas: tarjetas tipo fichero ---------- */
+.chicken-card{
+  background:var(--superficie);
+  border:1.5px solid var(--tierra);
+  border-radius:var(--radio);
+  padding:14px;
+  margin-bottom:12px;
+  box-shadow:2px 3px 0 var(--sombra);
+}
+.chicken-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+.chicken-name{font-family:var(--fuente-display);font-size:1.1rem;}
+.chicken-meta{font-family:var(--fuente-ledger);font-size:0.74rem;color:var(--tierra-suave);}
+.badge{
+  display:inline-block;
+  font-family:var(--fuente-ledger);
+  font-size:0.66rem;
+  text-transform:uppercase;
+  padding:3px 8px;
+  border-radius:20px;
+  background:var(--algarrobo);
+  color:var(--superficie);
+}
+.badge.pausa{background:var(--tierra-suave);}
+.chicken-notes{font-size:0.84rem;margin-top:6px;color:var(--tierra-suave);}
+
+/* ---------- Pie / toast ---------- */
+.toast{
+  position:fixed;
+  bottom:18px;
+  left:50%;
+  transform:translateX(-50%);
+  background:var(--tierra);
+  color:var(--paja);
+  padding:10px 18px;
+  border-radius:30px;
+  font-size:0.85rem;
+  box-shadow:0 4px 10px rgba(0,0,0,0.25);
+  z-index:50;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .25s, transform .25s;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(-6px);}
+
+.muted{color:var(--tierra-suave);font-size:0.8rem;}
+hr.dash{border:none;border-top:1px dashed var(--linea);margin:14px 0;}
+
+@media (max-width:380px){
+  .counter-num{font-size:2.1rem;}
+  .stat-grid{grid-template-columns:repeat(3,1fr);}
+}

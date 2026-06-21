@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gallinero</title>
+<meta name="description" content="Registro de huevos, gastos de comida y ahorro de tu gallinero, con clima de Filadelfia, Paraguay.">
+<meta name="theme-color" content="#C8862E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@500;600;700&family=Work+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <header class="ledger-header">
+    <div class="header-left">
+      <span class="stamp">🐔</span>
+      <div>
+        <h1>Gallinero</h1>
+        <p class="subtitle">Filadelfia · Chaco, PY</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <button id="installBtn" class="btn-ghost" hidden>Instalar app</button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-tab="inicio">Inicio</button>
+    <button class="tab" data-tab="huevos">Huevos</button>
+    <button class="tab" data-tab="comida">Comida</button>
+    <button class="tab" data-tab="gallinas">Gallinas</button>
+    <button class="tab" data-tab="clima">Clima</button>
+    <button class="tab" data-tab="ajustes">Ajustes</button>
+  </nav>
+
+  <main id="views">
+
+    <section id="view-inicio" class="view active"></section>
+    <section id="view-huevos" class="view"></section>
+    <section id="view-comida" class="view"></section>
+    <section id="view-gallinas" class="view"></section>
+    <section id="view-clima" class="view"></section>
+    <section id="view-ajustes" class="view"></section>
+
+  </main>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
