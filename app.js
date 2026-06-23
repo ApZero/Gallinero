@@ -4,12 +4,20 @@
    (gratuito, sin API key) para Filadelfia, Chaco, Paraguay.
    ========================================================= */
 
-const STORAGE_KEY = 'gallinero_v1';
+const STORAGE_KEY = 'gallinero_v2';
 const LAT = -22.3666, LON = -60.0333; // Filadelfia, Boquerón, Paraguay
 
 const WEEKDAYS_SHORT = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 const WEEKDAYS_LONG  = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 const MONTHS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+const EVENT_TYPES = {
+  'Limpieza': '🧹',
+  'Mantenimiento': '🛠️',
+  'Sanidad': '💉',
+  'Plagas/Depredadores': '🐍',
+  'Otro': '📝'
+};
 
 const GENERAL_TIPS = [
   {icon:'💧', text:'Limpiá los bebederos cada 2-3 días para evitar algas y bacterias.'},
@@ -32,6 +40,8 @@ function defaultState(){
     eggs:{},
     purchases:[],
     chickens:[],
+    temps:{},
+    events:[],
     settings:{eggPrice:0, dozenPrice:0, moneda:'Gs.'},
     weatherCache:null
   };
@@ -178,6 +188,109 @@ async function fetchWeather(force){
   }
 }
 
+/* ---------------- Temperaturas diarias (mín./máx.) ---------------- */
+// Usa el pronóstico ya descargado para hoy/próximos días, y la API histórica
+// de Open-Meteo (gratuita, sin API key) para completar días pasados que
+// tengan huevos registrados pero todavía no tengan temperatura guardada.
+async function backfillTemps(){
+  const today = isoDate(new Date());
+
+  const w = state.weatherCache;
+  if(w && w.daily && w.daily.time){
+    w.daily.time.forEach((dateStr,i)=>{
+      const tmax = w.daily.temperature_2m_max[i], tmin = w.daily.temperature_2m_min[i];
+      if(tmax==null || tmin==null) return;
+      const ex = state.temps[dateStr];
+      if(!ex || ex.source==='forecast') state.temps[dateStr] = {min:tmin, max:tmax, source:'forecast'};
+    });
+    saveState();
+  }
+
+  const eggDates = Object.keys(state.eggs);
+  const needing = eggDates.filter(d=>{
+    if(d>=today) return false;
+    const ex = state.temps[d];
+    return !ex || ex.source==='forecast';
+  });
+  if(!needing.length) return;
+  const minDate = needing.reduce((a,b)=> a<b?a:b);
+  const maxDate = needing.reduce((a,b)=> a>b?a:b);
+  try{
+    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${LAT}&longitude=${LON}&start_date=${minDate}&end_date=${maxDate}&daily=temperature_2m_max,temperature_2m_min&timezone=America%2FAsuncion`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('respuesta no válida');
+    const data = await res.json();
+    if(data.daily && data.daily.time){
+      data.daily.time.forEach((dateStr,i)=>{
+        const tmax = data.daily.temperature_2m_max[i], tmin = data.daily.temperature_2m_min[i];
+        if(tmax==null || tmin==null) return;
+        const ex = state.temps[dateStr];
+        if(!ex || ex.source!=='manual') state.temps[dateStr] = {min:tmin, max:tmax, source:'archive'};
+      });
+      saveState();
+    }
+  }catch(e){ /* sin conexión: se reintenta en la próxima carga */ }
+}
+function eggTempCorrelation(){
+  const pairs = [];
+  for(const [date,count] of Object.entries(state.eggs)){
+    const t = state.temps[date];
+    if(t && typeof t.max === 'number') pairs.push([count, t.max]);
+  }
+  const n = pairs.length;
+  if(n < 8) return {n, r:null};
+  const xs = pairs.map(p=>p[0]), ys = pairs.map(p=>p[1]);
+  const mx = xs.reduce((a,b)=>a+b,0)/n, my = ys.reduce((a,b)=>a+b,0)/n;
+  let num=0, dx2=0, dy2=0;
+  for(let i=0;i<n;i++){ const dx=xs[i]-mx, dy=ys[i]-my; num+=dx*dy; dx2+=dx*dx; dy2+=dy*dy; }
+  const denom = Math.sqrt(dx2*dy2);
+  const r = denom ? num/denom : 0;
+  return {n, r: +r.toFixed(2)};
+}
+function interpretCorr(r){
+  const a = Math.abs(r);
+  let fuerza = 'muy débil o nula';
+  if(a>=0.8) fuerza='muy fuerte';
+  else if(a>=0.6) fuerza='fuerte';
+  else if(a>=0.4) fuerza='moderada';
+  else if(a>=0.2) fuerza='débil';
+  if(a<0.2) return `Relación ${fuerza} entre temperatura máxima y huevos puestos.`;
+  const sentido = r>0 ? 'más calor coincide con más huevos' : 'más calor coincide con menos huevos';
+  return `Relación ${fuerza} (${sentido}).`;
+}
+function tempChartSvg(ym, totalDays){
+  const pts=[];
+  for(let d=1; d<=totalDays; d++) pts.push(state.temps[`${ym}-${String(d).padStart(2,'0')}`] || null);
+  const have = pts.filter(Boolean);
+  if(!have.length){
+    return `<div class="muted temp-empty">Sin datos de temperatura para este mes. <button class="btn-ghost" data-action="temps-refresh">Buscar</button></div>`;
+  }
+  let lo = Math.min(...have.map(p=>p.min)), hi = Math.max(...have.map(p=>p.max));
+  if(hi===lo){ hi+=1; lo-=1; }
+  const W=300,H=64,pad=4;
+  const stepX = pts.length>1 ? (W-2*pad)/(pts.length-1) : 0;
+  const y = v => (H-pad) - ((v-lo)/(hi-lo))*(H-2*pad);
+  let maxPath='', minPath='';
+  pts.forEach((p,i)=>{
+    if(!p) return;
+    const x = (pad + i*stepX).toFixed(1);
+    maxPath += (maxPath?' L':'M') + x + ',' + y(p.max).toFixed(1);
+    minPath += (minPath?' L':'M') + x + ',' + y(p.min).toFixed(1);
+  });
+  return `
+    <div class="temp-chart">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        <path d="${maxPath}" fill="none" stroke="var(--quebracho)" stroke-width="2"/>
+        <path d="${minPath}" fill="none" stroke="var(--algarrobo)" stroke-width="2" stroke-dasharray="3,2"/>
+      </svg>
+      <div class="temp-legend">
+        <span class="lg"><i class="sw max"></i>máx.</span>
+        <span class="lg"><i class="sw min"></i>mín.</span>
+        <span class="muted">${Math.round(lo)}°–${Math.round(hi)}°C</span>
+      </div>
+    </div>`;
+}
+
 /* ---------------- Render: Inicio ---------------- */
 function renderInicio(){
   const e = eggStats();
@@ -254,15 +367,29 @@ function renderHuevos(){
   const bars = dayVals.map((v,i)=>{
     const h = Math.round((v/maxVal)*100);
     const dayNum = i+1;
+    const ds = `${huevosMonth}-${String(dayNum).padStart(2,'0')}`;
+    const hasEvent = state.events.some(ev=>ev.date===ds);
     const showLabel = (dayNum===1 || dayNum===totalDays || dayNum%5===0);
-    return `<div class="bar-col"><div class="bar" style="height:${Math.max(h,2)}%"></div><div class="bar-label">${showLabel?dayNum:'&nbsp;'}</div></div>`;
+    return `<div class="bar-col"><div class="bar" style="height:${Math.max(h,2)}%"></div><div class="bar-label">${showLabel?dayNum:'&nbsp;'}</div>${hasEvent?'<div class="bar-dot" title="Hay un evento registrado este día"></div>':''}</div>`;
   }).join('');
+
+  const todayIso = isoDate(new Date());
+  const todayTemp = state.temps[todayIso];
+
+  const corr = eggTempCorrelation();
+  const corrHtml = corr.r===null
+    ? `<p class="muted">Todavía no hay suficientes días con huevos y temperatura guardados (mínimo 8) para calcular una relación confiable. Se va completando solo a medida que registrás huevos.</p>`
+    : `<div class="corr-value">r = ${corr.r}</div><p class="muted">${interpretCorr(corr.r)} Calculado sobre ${corr.n} días con datos de huevos y temperatura máxima.</p>`;
 
   const recent = Object.entries(state.eggs).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,30);
   const listHtml = recent.length ? recent.map(([date,count])=>{
     const d = new Date(date+'T12:00:00');
+    const t = state.temps[date];
+    const tempPill = t ? `<span class="meta">${Math.round(t.min)}°↔${Math.round(t.max)}°</span>` : '';
+    const dayEvents = state.events.filter(ev=>ev.date===date);
+    const evIcons = dayEvents.length ? ' '+dayEvents.map(ev=>EVENT_TYPES[ev.tipo]||'📝').join('') : '';
     return `<div class="list-row">
-      <span>${weekdayShort(d)} ${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}</span>
+      <span>${weekdayShort(d)} ${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}${evIcons}<br>${tempPill}</span>
       <span class="right">${count} 🥚 <button class="del-btn" data-action="egg-delete" data-date="${date}">✕</button></span>
     </div>`;
   }).join('') : `<div class="empty">Todavía no registraste huevos.</div>`;
@@ -271,9 +398,14 @@ function renderHuevos(){
     <h2 class="section-title">Registrar huevos</h2>
     <div class="card">
       <label>Fecha</label>
-      <input type="date" id="eggDate" value="${isoDate(new Date())}" max="${isoDate(new Date())}">
+      <input type="date" id="eggDate" value="${todayIso}" max="${todayIso}">
       <label>Cantidad de huevos</label>
       <input type="number" id="eggCount" min="0" step="1" placeholder="0">
+      <div class="grid-2">
+        <div><label>Temp. mínima (°C)</label><input type="number" id="eggTempMin" step="0.1" placeholder="auto" value="${todayTemp?todayTemp.min:''}"></div>
+        <div><label>Temp. máxima (°C)</label><input type="number" id="eggTempMax" step="0.1" placeholder="auto" value="${todayTemp?todayTemp.max:''}"></div>
+      </div>
+      <p class="muted" style="margin-top:6px;">Las temperaturas se completan solas con el pronóstico/histórico de Filadelfia. Dejalas vacías para mantener el valor automático, o corregilas si tenés un dato más preciso.</p>
       <button class="btn" data-action="egg-set">Guardar</button>
     </div>
 
@@ -287,6 +419,13 @@ function renderHuevos(){
       </div>
       <div class="bars">${bars}</div>
       <div class="muted">Total del mes: ${monthSum} huevos · Promedio diario: ${viewedAvg}</div>
+      <hr class="dash">
+      ${tempChartSvg(huevosMonth, totalDays)}
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Huevos y temperatura</h2>
+      ${corrHtml}
     </div>
 
     <div class="card">
@@ -416,6 +555,43 @@ function renderGallinas(){
   `;
 }
 
+/* ---------------- Render: Eventos ---------------- */
+function renderEventos(){
+  const sorted = [...state.events].sort((a,b)=>b.date.localeCompare(a.date));
+  const listHtml = sorted.length ? sorted.map(ev=>{
+    const d = new Date(ev.date+'T12:00:00');
+    return `<div class="event-card">
+      <div class="event-head">
+        <span class="event-icon">${EVENT_TYPES[ev.tipo]||'📝'}</span>
+        <div class="event-info">
+          <div class="event-tipo">${escapeHtml(ev.tipo)}</div>
+          <div class="event-fecha">${weekdayShort(d)} ${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}</div>
+        </div>
+        <button class="del-btn" data-action="event-delete" data-id="${ev.id}">✕</button>
+      </div>
+      ${ev.nota ? `<div class="event-nota">${escapeHtml(ev.nota)}</div>` : ''}
+    </div>`;
+  }).join('') : `<div class="empty">Todavía no registraste eventos.</div>`;
+
+  document.getElementById('view-eventos').innerHTML = `
+    <h2 class="section-title">Registrar evento</h2>
+    <div class="card">
+      <label>Fecha</label>
+      <input type="date" id="eventDate" value="${isoDate(new Date())}" max="${isoDate(new Date())}">
+      <label>Tipo</label>
+      <select id="eventTipo">
+        ${Object.keys(EVENT_TYPES).map(t=>`<option>${escapeHtml(t)}</option>`).join('')}
+      </select>
+      <label>Nota</label>
+      <textarea id="eventNota" rows="2" placeholder="Ej: limpieza general y cambio de cama. Puse cebo para serpientes en la esquina sur..."></textarea>
+      <button class="btn" data-action="event-add">Guardar evento</button>
+    </div>
+
+    <h2 class="section-title">Bitácora <span class="n">${state.events.length}</span></h2>
+    ${listHtml}
+  `;
+}
+
 /* ---------------- Render: Clima ---------------- */
 function renderClima(){
   const w = state.weatherCache;
@@ -494,7 +670,7 @@ function renderAjustes(){
 
     <h2 class="section-title">Datos guardados</h2>
     <div class="card">
-      <p class="muted">${Object.keys(state.eggs).length} días de huevos registrados · ${state.purchases.length} compras · ${state.chickens.length} gallinas.<br>
+      <p class="muted">${Object.keys(state.eggs).length} días de huevos registrados · ${state.purchases.length} compras · ${state.chickens.length} gallinas · ${state.events.length} eventos en la bitácora.<br>
       Todo se guarda localmente en este dispositivo; nada se sube a internet (excepto la consulta del clima).</p>
       <button class="btn peligro" data-action="reset-data">Borrar todos los datos</button>
     </div>
@@ -507,7 +683,7 @@ function renderAjustes(){
 }
 
 function renderAll(){
-  renderInicio(); renderHuevos(); renderComida(); renderGallinas(); renderClima(); renderAjustes();
+  renderInicio(); renderHuevos(); renderComida(); renderGallinas(); renderEventos(); renderClima(); renderAjustes();
 }
 
 /* ---------------- Acciones ---------------- */
@@ -530,6 +706,13 @@ function addPurchase(){
   if(total<=0){ showToast('Ingresá el precio total pagado'); return; }
   state.purchases.push({id:genId(), date, tipo, cantidad, unidad, total});
   saveState(); showToast('Compra registrada'); renderComida(); renderInicio();
+}
+function addEvent(){
+  const date = document.getElementById('eventDate').value || isoDate(new Date());
+  const tipo = document.getElementById('eventTipo').value;
+  const nota = document.getElementById('eventNota').value.trim();
+  state.events.push({id:genId(), date, tipo, nota});
+  saveState(); showToast('Evento registrado'); renderEventos(); renderHuevos();
 }
 function saveChicken(){
   const nombre = document.getElementById('chickenNombre').value.trim();
@@ -564,8 +747,15 @@ function handleAction(action, el){
     case 'egg-set': {
       const date = document.getElementById('eggDate').value || isoDate(new Date());
       const count = Math.max(0, parseInt(document.getElementById('eggCount').value,10)||0);
-      state.eggs[date] = count; saveState(); showToast('Registrado');
+      state.eggs[date] = count;
+      const tMinRaw = document.getElementById('eggTempMin').value;
+      const tMaxRaw = document.getElementById('eggTempMax').value;
+      if(tMinRaw!=='' && tMaxRaw!==''){
+        state.temps[date] = {min:parseFloat(tMinRaw), max:parseFloat(tMaxRaw), source:'manual'};
+      }
+      saveState(); showToast('Registrado');
       renderInicio(); renderHuevos();
+      backfillTemps().then(()=>{ if(document.querySelector('.tab.active')?.dataset.tab==='huevos') renderHuevos(); });
       break;
     }
     case 'egg-delete':
@@ -573,6 +763,16 @@ function handleAction(action, el){
       break;
     case 'huevos-prev-month': shiftHuevosMonth(-1); renderHuevos(); break;
     case 'huevos-next-month': shiftHuevosMonth(1); renderHuevos(); break;
+    case 'temps-refresh':
+      showToast('Buscando temperaturas…');
+      backfillTemps().then(()=>{ renderHuevos(); });
+      break;
+
+    case 'event-add': addEvent(); break;
+    case 'event-delete':
+      state.events = state.events.filter(ev=>ev.id!==el.dataset.id);
+      saveState(); renderEventos(); renderHuevos();
+      break;
 
     case 'purchase-add': addPurchase(); break;
     case 'purchase-delete':
@@ -619,6 +819,12 @@ function exportExcel(){
 
   const chickenRows = state.chickens.map(c=>({Nombre:c.nombre, Raza:c.raza, FechaLlegada:c.fecha, Estado:c.estado, Notas:c.notas}));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(chickenRows), 'Gallinas');
+
+  const tempRows = Object.entries(state.temps).sort((a,b)=>a[0].localeCompare(b[0])).map(([Fecha,t])=>({Fecha, Min:t.min, Max:t.max, Fuente:t.source||''}));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tempRows), 'Temperaturas');
+
+  const eventRows = [...state.events].sort((a,b)=>a.date.localeCompare(b.date)).map(ev=>({Fecha:ev.date, Tipo:ev.tipo, Nota:ev.nota}));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(eventRows), 'Eventos');
 
   const configRows = [{PrecioHuevo:state.settings.eggPrice, PrecioDocena:state.settings.dozenPrice, Moneda:state.settings.moneda}];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(configRows), 'Config');
@@ -676,6 +882,20 @@ function importExcel(file){
           });
         });
       }
+      if(wb.SheetNames.includes('Temperaturas')){
+        XLSX.utils.sheet_to_json(wb.Sheets['Temperaturas']).forEach(r=>{
+          const fecha = normalizeDate(r.Fecha);
+          if(fecha && r.Min!=null && r.Max!=null){
+            state.temps[fecha] = {min:Number(r.Min), max:Number(r.Max), source: r.Fuente||'manual'};
+          }
+        });
+      }
+      if(wb.SheetNames.includes('Eventos')){
+        XLSX.utils.sheet_to_json(wb.Sheets['Eventos']).forEach(r=>{
+          const fecha = normalizeDate(r.Fecha);
+          if(fecha) state.events.push({id:genId(), date:fecha, tipo:r.Tipo||'Otro', nota:r.Nota||''});
+        });
+      }
       if(wb.SheetNames.includes('Config')){
         const rows = XLSX.utils.sheet_to_json(wb.Sheets['Config']);
         if(rows[0]){
@@ -685,6 +905,7 @@ function importExcel(file){
         }
       }
       saveState(); showToast('Datos importados correctamente'); renderAll();
+      backfillTemps().then(()=>{ renderHuevos(); });
     }catch(err){
       console.error(err);
       showToast('Error al importar el archivo');
@@ -712,6 +933,14 @@ document.addEventListener('change', (e)=>{
     if(file) importExcel(file);
     e.target.value = '';
   }
+  if(e.target.id === 'eggDate'){
+    const t = state.temps[e.target.value];
+    const minEl = document.getElementById('eggTempMin'), maxEl = document.getElementById('eggTempMax');
+    if(minEl) minEl.value = t ? t.min : '';
+    if(maxEl) maxEl.value = t ? t.max : '';
+    const countEl = document.getElementById('eggCount');
+    if(countEl) countEl.value = state.eggs[e.target.value] || '';
+  }
 });
 
 /* ---------------- Instalación PWA ---------------- */
@@ -735,4 +964,4 @@ if('serviceWorker' in navigator){
 
 /* ---------------- Inicio ---------------- */
 renderAll();
-fetchWeather(false).then(()=>{ renderInicio(); renderClima(); });
+fetchWeather(false).then(()=>{ renderInicio(); renderClima(); backfillTemps().then(()=>{ renderHuevos(); }); });

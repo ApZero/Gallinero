@@ -277,7 +277,7 @@ h2.section-title .n{
 
 /* ---------- Barras simples (sin librería) ---------- */
 .bars{display:flex;align-items:flex-end;gap:6px;height:110px;margin:10px 0;}
-.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;}
+.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;position:relative;}
 .bar{
   width:100%;
   max-width:26px;
@@ -286,6 +286,43 @@ h2.section-title .n{
   min-height:2px;
 }
 .bar-label{font-size:0.62rem;color:var(--tierra-suave);margin-top:4px;font-family:var(--fuente-ledger);}
+.bar-dot{
+  width:5px;height:5px;border-radius:50%;
+  background:var(--quebracho);
+  margin-top:3px;
+}
+
+/* ---------- Temperatura: gráfico y correlación ---------- */
+.temp-chart{margin-top:4px;}
+.temp-chart svg{width:100%;height:64px;display:block;}
+.temp-legend{display:flex;align-items:center;gap:14px;margin-top:4px;font-size:0.72rem;color:var(--tierra-suave);}
+.temp-legend .lg{display:flex;align-items:center;gap:5px;}
+.temp-legend .sw{width:14px;height:2px;display:inline-block;border-radius:1px;}
+.temp-legend .sw.max{background:var(--quebracho);}
+.temp-legend .sw.min{background:var(--algarrobo);border-top:2px dashed var(--algarrobo);height:0;}
+.temp-empty{display:block;margin-top:6px;}
+.corr-value{
+  font-family:var(--fuente-ledger);
+  font-size:1.6rem;
+  font-weight:600;
+  color:var(--yema-osc);
+}
+
+/* ---------- Eventos: tarjetas tipo bitácora ---------- */
+.event-card{
+  background:var(--superficie);
+  border:1.5px solid var(--tierra);
+  border-radius:var(--radio);
+  padding:12px 14px;
+  margin-bottom:10px;
+  box-shadow:2px 3px 0 var(--sombra);
+}
+.event-head{display:flex;align-items:center;gap:10px;}
+.event-icon{font-size:1.3rem;flex-shrink:0;}
+.event-info{flex:1;}
+.event-tipo{font-family:var(--fuente-display);font-size:1rem;}
+.event-fecha{font-family:var(--fuente-ledger);font-size:0.72rem;color:var(--tierra-suave);}
+.event-nota{font-size:0.86rem;color:var(--tierra-suave);margin-top:8px;padding-top:8px;border-top:1px dashed var(--linea);}
 
 /* ---------- Formularios ---------- */
 label{
