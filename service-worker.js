@@ -2,7 +2,7 @@
    El clima (api.open-meteo.com) siempre va directo a la red; si falla, el propio
    app.js usa el último pronóstico guardado en localStorage. */
 
-const CACHE_NAME = 'gallinero-cache-v2';
+const CACHE_NAME = 'gallinero-cache-v3';
 const PRECACHE = [
   './',
   './index.html',

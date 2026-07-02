@@ -4,7 +4,7 @@
    (gratuito, sin API key) para Filadelfia, Chaco, Paraguay.
    ========================================================= */
 
-const STORAGE_KEY = 'gallinero_v2';
+const STORAGE_KEY = 'gallinero_v1';
 const LAT = -22.3666, LON = -60.0333; // Filadelfia, Boquerón, Paraguay
 
 const WEEKDAYS_SHORT = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
@@ -42,6 +42,8 @@ function defaultState(){
     chickens:[],
     temps:{},
     events:[],
+    foodTypes:['Balanceado','Maíz','Afrechillo','Sorgo','Conchilla'],
+    foodRatios:{},
     settings:{eggPrice:0, dozenPrice:0, moneda:'Gs.'},
     weatherCache:null
   };
@@ -258,6 +260,165 @@ function interpretCorr(r){
   const sentido = r>0 ? 'más calor coincide con más huevos' : 'más calor coincide con menos huevos';
   return `Relación ${fuerza} (${sentido}).`;
 }
+
+/* ---------------- Mezcla / Dieta ---------------- */
+function getRatioForDate(date){
+  const entries = Object.entries(state.foodRatios)
+    .filter(([d])=>d<=date)
+    .sort((a,b)=>b[0].localeCompare(a[0]));
+  return entries.length ? entries[0][1] : null;
+}
+function getLastRatioDate(upToDate){
+  const entries = Object.entries(state.foodRatios)
+    .filter(([d])=>d<=upToDate)
+    .sort((a,b)=>b[0].localeCompare(a[0]));
+  return entries.length ? entries[0][0] : null;
+}
+function defaultRatio(){
+  const types = state.foodTypes;
+  if(!types.length) return {};
+  const each = Math.floor(100/types.length);
+  const ratio = {};
+  types.forEach(t=>ratio[t]=each);
+  ratio[types[0]] += 100 - each*types.length;
+  return ratio;
+}
+function normalizeRatio(raw){
+  const types = state.foodTypes;
+  if(!types.length) return {};
+  const filtered = {};
+  types.forEach(t=>filtered[t] = (raw&&raw[t]!=null) ? Math.max(0, raw[t]) : 0);
+  const total = Object.values(filtered).reduce((s,v)=>s+v,0);
+  if(total===0) return defaultRatio();
+  if(total===100 && types.every(t=>Number.isInteger(filtered[t]))) return filtered;
+  // Largest-remainder method: guarantees sum === 100
+  const exactMap = {}, floorMap = {}, remMap = {};
+  types.forEach(t=>{ const ex=filtered[t]/total*100; exactMap[t]=ex; floorMap[t]=Math.floor(ex); remMap[t]=ex-floorMap[t]; });
+  let diff = 100 - types.reduce((s,t)=>s+floorMap[t],0);
+  const sorted = types.slice().sort((a,b)=>remMap[b]-remMap[a]);
+  sorted.forEach((t,i)=>{ floorMap[t]+=(i<diff?1:0); });
+  return floorMap;
+}
+function getCurrentDisplayRatio(date){
+  const raw = getRatioForDate(date);
+  return raw ? normalizeRatio(raw) : (state.foodTypes.length ? defaultRatio() : {});
+}
+
+/* Guard to prevent slider feedback loops */
+let _adjustingRatio = false;
+function handleRatioInput(changedEl){
+  if(_adjustingRatio) return;
+  _adjustingRatio = true;
+  const tipo = changedEl.dataset.ratioTipo;
+  const newVal = Math.max(0, Math.min(100, parseInt(changedEl.value,10)||0));
+  changedEl.value = newVal;
+
+  // Read all current values from DOM
+  const allSliders = document.querySelectorAll('input[data-ratio-tipo]');
+  const cur = {};
+  allSliders.forEach(sl=>{ cur[sl.dataset.ratioTipo] = parseInt(sl.value,10)||0; });
+
+  const oldVal = cur[tipo];
+  const delta = newVal - oldVal;
+  cur[tipo] = newVal;
+
+  const others = state.foodTypes.filter(t=>t!==tipo);
+  const totalOthers = others.reduce((s,t)=>s+(cur[t]||0),0);
+
+  if(delta!==0 && others.length>0){
+    if(totalOthers>0){
+      // Distribute -delta proportionally among others
+      let remaining = -delta;
+      others.forEach((t,i)=>{
+        if(i===others.length-1){
+          cur[t] = Math.max(0, (cur[t]||0)+remaining);
+        } else {
+          const adj = Math.round((cur[t]||0)/totalOthers*(-delta));
+          cur[t] = Math.max(0, (cur[t]||0)+adj);
+          remaining -= adj;
+        }
+      });
+    } else if(delta<0){
+      // Others all at 0, we freed space — distribute evenly
+      const share = Math.floor(-delta/others.length);
+      const extra = -delta - share*others.length;
+      others.forEach((t,i)=>{ cur[t]= share + (i<extra?1:0); });
+    }
+  }
+
+  // Force exact 100 (fix rounding residual)
+  let sum = Object.values(cur).reduce((s,v)=>s+v,0);
+  if(sum!==100){
+    const adj = others.filter(t=>cur[t]>0);
+    if(adj.length){
+      const biggest = adj.reduce((a,b)=>cur[a]>cur[b]?a:b);
+      cur[biggest] = Math.max(0, cur[biggest]+(100-sum));
+    } else { cur[tipo]=100; }
+  }
+
+  // Update DOM
+  allSliders.forEach(sl=>{
+    const t = sl.dataset.ratioTipo;
+    if(t!==tipo) sl.value = cur[t]||0;
+    const lbl = document.querySelector(`[data-ratio-lbl="${t}"]`);
+    if(lbl) lbl.textContent = (cur[t]||0)+'%';
+  });
+  // Ensure changed slider label is updated
+  const myLbl = document.querySelector(`[data-ratio-lbl="${tipo}"]`);
+  if(myLbl) myLbl.textContent = newVal+'%';
+
+  _adjustingRatio = false;
+}
+
+function ratioSlidersHtml(ratio){
+  if(!state.foodTypes.length){
+    return `<p class="muted">Primero agregá tipos de alimento en <strong>Ajustes → Tipos de alimento</strong>.</p>`;
+  }
+  return state.foodTypes.map(t=>{
+    const pct = ratio[t]||0;
+    return `<div class="ratio-row">
+      <span class="ratio-label">${escapeHtml(t)}</span>
+      <input type="range" class="ratio-slider" min="0" max="100" value="${pct}" data-ratio-tipo="${escapeHtml(t)}">
+      <span class="ratio-pct" data-ratio-lbl="${escapeHtml(t)}">${pct}%</span>
+    </div>`;
+  }).join('');
+}
+
+function stockAlerts(){
+  const today = isoDate(new Date());
+  const ratio = getCurrentDisplayRatio(today);
+  if(!Object.keys(ratio).length) return [];
+  const alerts = [];
+  for(const [tipo,pct] of Object.entries(ratio)){
+    if(!pct) continue;
+    const byTipo = state.purchases.filter(p=>p.tipo===tipo).sort((a,b)=>b.date.localeCompare(a.date));
+    if(!byTipo.length){
+      alerts.push({tipo, dias:null, msg:`Sin compras registradas de <strong>${escapeHtml(tipo)}</strong>.`});
+    } else {
+      const last = byTipo[0];
+      const dias = Math.floor((new Date(today+'T00:00:00') - new Date(last.date+'T00:00:00'))/86400000);
+      if(dias>30) alerts.push({tipo, dias, msg:`<strong>${escapeHtml(tipo)}</strong>: última compra hace ${dias} días.`});
+    }
+  }
+  return alerts;
+}
+
+function foodEggAnalysis(){
+  // Per food type: avg eggs on days when that ingredient was active
+  const acc = {};
+  state.foodTypes.forEach(t=>acc[t]={days:0,eggs:0});
+  for(const [date,count] of Object.entries(state.eggs)){
+    const ratio = getRatioForDate(date);
+    if(!ratio) continue;
+    for(const [tipo,pct] of Object.entries(ratio)){
+      if(pct>0 && acc[tipo]!=null){ acc[tipo].days++; acc[tipo].eggs+=count; }
+    }
+  }
+  return state.foodTypes
+    .map(t=>({tipo:t, days:acc[t].days, avg:acc[t].days>0?+(acc[t].eggs/acc[t].days).toFixed(1):null}))
+    .filter(r=>r.days>0)
+    .sort((a,b)=>(b.avg||0)-(a.avg||0));
+}
 function tempChartSvg(ym, totalDays){
   const pts=[];
   for(let d=1; d<=totalDays; d++) pts.push(state.temps[`${ym}-${String(d).padStart(2,'0')}`] || null);
@@ -295,6 +456,25 @@ function tempChartSvg(ym, totalDays){
 function renderInicio(){
   const e = eggStats();
   const sv = savings();
+  const alerts = stockAlerts();
+  const today = isoDate(new Date());
+  const ratio = getCurrentDisplayRatio(today);
+  const ratioDate = getLastRatioDate(today);
+  const ratioEntries = Object.entries(ratio).filter(([,v])=>v>0);
+
+  const alertHtml = alerts.length ? `
+    <div class="card alerta-card">
+      <h2 class="section-title">⚠️ Stock bajo</h2>
+      ${alerts.map(a=>`<div class="tip alerta"><span class="ico">🛒</span><span>${a.msg}</span></div>`).join('')}
+    </div>` : '';
+
+  const dietaHtml = ratioEntries.length ? `
+    <div class="card">
+      <h2 class="section-title">Mezcla actual</h2>
+      <div class="mix-pills">${ratioEntries.map(([t,v])=>`<div class="mix-pill"><span class="mix-pct">${v}%</span><span class="mix-name">${escapeHtml(t)}</span></div>`).join('')}</div>
+      ${ratioDate ? `<div class="muted" style="margin-top:6px;">Desde ${ratioDate.split('-').reverse().join('/')}</div>` : ''}
+    </div>` : '';
+
   document.getElementById('view-inicio').innerHTML = `
     <div class="card today-block">
       <div class="today-date">${fullDateLabel(new Date())}</div>
@@ -325,6 +505,8 @@ function renderInicio(){
       ${sv.pricePerEgg ? '' : '<p class="muted" style="margin-top:8px;">Definí un precio en Ajustes para calcular el ahorro real.</p>'}
     </div>
 
+    ${alertHtml}
+    ${dietaHtml}
     ${renderWeatherMini()}
   `;
 }
@@ -438,6 +620,9 @@ function renderHuevos(){
 /* ---------------- Render: Comida ---------------- */
 function renderComida(){
   const f = foodStats();
+  const today = isoDate(new Date());
+
+  // Purchase list
   const sorted = [...state.purchases].sort((a,b)=>b.date.localeCompare(a.date));
   const listHtml = sorted.length ? sorted.map(p=>{
     const d = new Date(p.date+'T12:00:00');
@@ -447,6 +632,7 @@ function renderComida(){
     </div>`;
   }).join('') : `<div class="empty">Todavía no registraste compras de comida.</div>`;
 
+  // Spend chart (last 6 months)
   const months = last6Months();
   let maxC=1;
   const vals = months.map(ym=>{
@@ -454,27 +640,46 @@ function renderComida(){
     if(t>maxC) maxC=t;
     return t;
   });
-  const bars = months.map((ym,i)=>{
+  const spendBars = months.map((ym,i)=>{
     const h = Math.round((vals[i]/maxC)*100);
     const m = Number(ym.split('-')[1]);
     return `<div class="bar-col"><div class="bar" style="height:${Math.max(h,2)}%;background:var(--algarrobo)"></div><div class="bar-label">${MONTHS[m-1].slice(0,3)}</div></div>`;
   }).join('');
 
+  // Mezcla
+  const ratioRaw = getCurrentDisplayRatio(today);
+  const ratioDate = getLastRatioDate(today);
+  const ratioNote = ratioDate && ratioDate!==today
+    ? `<p class="muted" style="margin-top:4px;">Mezcla activa desde ${ratioDate.split('-').reverse().join('/')}. Modificá la fecha y los porcentajes para registrar un cambio.</p>`
+    : `<p class="muted" style="margin-top:4px;">Esta mezcla se aplica a hoy y a los días siguientes hasta que registres un cambio.</p>`;
+
+  // Food-egg analysis
+  const analysis = foodEggAnalysis();
+  const analysisHtml = analysis.length>=2 ? `
+    <div class="card">
+      <h2 class="section-title">Huevos por ingrediente</h2>
+      <p class="muted">Promedio diario de huevos en días en que cada alimento estaba activo en la mezcla.</p>
+      ${analysis.map((r,i)=>{
+        const bar = Math.round((r.avg/analysis[0].avg)*100);
+        return `<div class="analysis-row">
+          <span class="analysis-name">${escapeHtml(r.tipo)}</span>
+          <div class="analysis-bar-wrap"><div class="analysis-bar" style="width:${bar}%"></div></div>
+          <span class="analysis-val">${r.avg} 🥚 <span class="muted">(${r.days}d)</span></span>
+        </div>`;
+      }).join('')}
+    </div>` : '';
+
+  // Datalist options from foodTypes
+  const datalistOpts = state.foodTypes.map(t=>`<option value="${escapeHtml(t)}">`).join('');
+
   document.getElementById('view-comida').innerHTML = `
     <h2 class="section-title">Registrar compra de comida</h2>
     <div class="card">
       <label>Fecha</label>
-      <input type="date" id="purchaseDate" value="${isoDate(new Date())}" max="${isoDate(new Date())}">
+      <input type="date" id="purchaseDate" value="${today}" max="${today}">
       <label>Tipo de alimento</label>
-      <input type="text" id="purchaseTipo" list="tiposComida" placeholder="Balanceado, maíz, afrechillo...">
-      <datalist id="tiposComida">
-        <option value="Balanceado / concentrado">
-        <option value="Maíz">
-        <option value="Afrechillo">
-        <option value="Conchilla / calcio">
-        <option value="Vitaminas">
-        <option value="Otro">
-      </datalist>
+      <input type="text" id="purchaseTipo" list="tiposComida" placeholder="Seleccioná o escribí un alimento…">
+      <datalist id="tiposComida">${datalistOpts}</datalist>
       <div class="grid-2">
         <div><label>Cantidad</label><input type="number" id="purchaseCantidad" min="0" step="0.1" placeholder="0"></div>
         <div><label>Unidad</label>
@@ -490,6 +695,18 @@ function renderComida(){
       <button class="btn" data-action="purchase-add">Guardar compra</button>
     </div>
 
+    <h2 class="section-title">Mezcla diaria</h2>
+    <div class="card">
+      <p class="muted">Ajustá los porcentajes de cada ingrediente en la ración. La mezcla se mantiene igual todos los días hasta que registres un cambio.</p>
+      <label>Fecha del cambio</label>
+      <input type="date" id="ratioDate" value="${today}" max="${today}">
+      <div class="ratio-sliders" id="ratio-sliders-container">
+        ${ratioSlidersHtml(ratioRaw)}
+      </div>
+      ${ratioNote}
+      <button class="btn" data-action="ratio-save">Guardar mezcla</button>
+    </div>
+
     <div class="card">
       <h2 class="section-title">Gasto en comida</h2>
       <div class="stat-grid">
@@ -497,9 +714,11 @@ function renderComida(){
         <div class="stat"><div class="v">${fmtGs(f.yearTotal)}</div><div class="l">${state.settings.moneda} este año</div></div>
         <div class="stat"><div class="v">${fmtGs(f.allTotal)}</div><div class="l">${state.settings.moneda} total</div></div>
       </div>
-      <div class="bars" style="margin-top:14px;">${bars}</div>
+      <div class="bars" style="margin-top:14px;">${spendBars}</div>
       <div class="muted">Gasto mensual, últimos 6 meses</div>
     </div>
+
+    ${analysisHtml}
 
     <div class="card">
       <h2 class="section-title">Historial de compras</h2>
@@ -647,7 +866,25 @@ function renderClima(){
 /* ---------------- Render: Ajustes ---------------- */
 function renderAjustes(){
   const s = state.settings;
+  const typesHtml = state.foodTypes.length
+    ? state.foodTypes.map((t,i)=>`
+        <div class="list-row">
+          <span>${escapeHtml(t)}</span>
+          <button class="del-btn" data-action="foodtype-delete" data-idx="${i}">✕</button>
+        </div>`).join('')
+    : `<div class="empty">Sin tipos de alimento todavía.</div>`;
+
   document.getElementById('view-ajustes').innerHTML = `
+    <h2 class="section-title">Tipos de alimento</h2>
+    <div class="card">
+      <p class="muted">Esta lista se usa tanto para registrar compras como para definir la mezcla diaria. Agregá o eliminá según lo que uses en tu gallinero.</p>
+      ${typesHtml}
+      <div class="grid-2" style="margin-top:10px;">
+        <input type="text" id="newFoodType" placeholder="Ej: Sorgo, Soja, Vitaminas…" style="margin:0">
+        <button class="btn" data-action="foodtype-add" style="margin:0">Agregar</button>
+      </div>
+    </div>
+
     <h2 class="section-title">Precio de referencia</h2>
     <div class="card">
       <p class="muted">Definí el precio del huevo suelto o por docena para calcular cuánto ahorrás al producir tus propios huevos. Si completás los dos, se usa el precio por docena.</p>
@@ -670,7 +907,7 @@ function renderAjustes(){
 
     <h2 class="section-title">Datos guardados</h2>
     <div class="card">
-      <p class="muted">${Object.keys(state.eggs).length} días de huevos registrados · ${state.purchases.length} compras · ${state.chickens.length} gallinas · ${state.events.length} eventos en la bitácora.<br>
+      <p class="muted">${Object.keys(state.eggs).length} días de huevos registrados · ${state.purchases.length} compras · ${state.chickens.length} gallinas · ${state.events.length} eventos en la bitácora · ${Object.keys(state.foodRatios).length} cambios de mezcla.<br>
       Todo se guarda localmente en este dispositivo; nada se sube a internet (excepto la consulta del clima).</p>
       <button class="btn peligro" data-action="reset-data">Borrar todos los datos</button>
     </div>
@@ -774,6 +1011,36 @@ function handleAction(action, el){
       saveState(); renderEventos(); renderHuevos();
       break;
 
+    case 'ratio-save': {
+      const date = document.getElementById('ratioDate').value || isoDate(new Date());
+      const allSliders = document.querySelectorAll('input[data-ratio-tipo]');
+      if(!allSliders.length){ showToast('Primero agregá tipos de alimento en Ajustes'); break; }
+      const ratio = {};
+      allSliders.forEach(sl=>{ ratio[sl.dataset.ratioTipo] = parseInt(sl.value,10)||0; });
+      const total = Object.values(ratio).reduce((s,v)=>s+v,0);
+      if(total!==100){ showToast(`La mezcla suma ${total}% — tiene que ser exactamente 100%`); break; }
+      state.foodRatios[date] = ratio;
+      saveState(); showToast('Mezcla guardada'); renderComida(); renderInicio();
+      break;
+    }
+    case 'foodtype-add': {
+      const inp = document.getElementById('newFoodType');
+      const name = inp ? inp.value.trim() : '';
+      if(!name){ showToast('Escribí un nombre'); break; }
+      if(state.foodTypes.includes(name)){ showToast('Ya existe ese tipo'); break; }
+      state.foodTypes.push(name);
+      saveState(); showToast(`"${name}" agregado`); renderAjustes(); renderComida();
+      break;
+    }
+    case 'foodtype-delete': {
+      const idx = parseInt(el.dataset.idx, 10);
+      const name = state.foodTypes[idx];
+      if(!confirm(`¿Eliminar "${name}" de la lista? No afecta las mezclas ya guardadas.`)) break;
+      state.foodTypes.splice(idx,1);
+      saveState(); renderAjustes(); renderComida(); renderInicio();
+      break;
+    }
+
     case 'purchase-add': addPurchase(); break;
     case 'purchase-delete':
       state.purchases = state.purchases.filter(p=>p.id!==el.dataset.id);
@@ -825,6 +1092,12 @@ function exportExcel(){
 
   const eventRows = [...state.events].sort((a,b)=>a.date.localeCompare(b.date)).map(ev=>({Fecha:ev.date, Tipo:ev.tipo, Nota:ev.nota}));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(eventRows), 'Eventos');
+
+  const foodTypeRows = state.foodTypes.map(Tipo=>({Tipo}));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(foodTypeRows), 'TiposAlimento');
+
+  const ratioRows = Object.entries(state.foodRatios).sort((a,b)=>a[0].localeCompare(b[0])).map(([Fecha,r])=>({Fecha, ...r}));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ratioRows), 'Mezclas');
 
   const configRows = [{PrecioHuevo:state.settings.eggPrice, PrecioDocena:state.settings.dozenPrice, Moneda:state.settings.moneda}];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(configRows), 'Config');
@@ -904,6 +1177,20 @@ function importExcel(file){
           state.settings.moneda = rows[0].Moneda || state.settings.moneda;
         }
       }
+      if(wb.SheetNames.includes('TiposAlimento')){
+        const imported = XLSX.utils.sheet_to_json(wb.Sheets['TiposAlimento'])
+          .map(r=>String(r.Tipo||'').trim()).filter(Boolean);
+        if(imported.length) state.foodTypes = [...new Set([...state.foodTypes, ...imported])];
+      }
+      if(wb.SheetNames.includes('Mezclas')){
+        XLSX.utils.sheet_to_json(wb.Sheets['Mezclas']).forEach(r=>{
+          const fecha = normalizeDate(r.Fecha);
+          if(!fecha) return;
+          const ratio = {};
+          Object.entries(r).forEach(([k,v])=>{ if(k!=='Fecha') ratio[k]=Number(v)||0; });
+          state.foodRatios[fecha] = ratio;
+        });
+      }
       saveState(); showToast('Datos importados correctamente'); renderAll();
       backfillTemps().then(()=>{ renderHuevos(); });
     }catch(err){
@@ -940,6 +1227,17 @@ document.addEventListener('change', (e)=>{
     if(maxEl) maxEl.value = t ? t.max : '';
     const countEl = document.getElementById('eggCount');
     if(countEl) countEl.value = state.eggs[e.target.value] || '';
+  }
+  if(e.target.id === 'ratioDate'){
+    // When date changes, load the carried-forward ratio for that date
+    const ratio = getCurrentDisplayRatio(e.target.value);
+    const container = document.getElementById('ratio-sliders-container');
+    if(container) container.innerHTML = ratioSlidersHtml(ratio);
+  }
+});
+document.addEventListener('input', (e)=>{
+  if(e.target.dataset && e.target.dataset.ratioTipo !== undefined){
+    handleRatioInput(e.target);
   }
 });
 
